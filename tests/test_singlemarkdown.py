@@ -12,8 +12,6 @@ from unittest import mock
 
 import pytest
 from docutils import nodes
-from docutils.frontend import Values
-from docutils.utils import Reporter
 from sphinx.cmd.build import main
 from sphinx.environment import BuildEnvironment
 

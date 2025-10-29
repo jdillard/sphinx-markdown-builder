@@ -5,7 +5,6 @@
 from typing import TYPE_CHECKING
 
 from docutils import nodes
-from sphinx import addnodes
 
 from sphinx_markdown_builder.translator import MarkdownTranslator
 
