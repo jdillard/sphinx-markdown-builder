@@ -30,6 +30,6 @@ class SingleMarkdownTranslator(MarkdownTranslator):
         # Add anchor for document linking (like singlehtml does)
         self.add(f'<a id="document-{docname}"></a>', prefix_eol=2)
 
-    def depart_start_of_file(self, node: nodes.Element) -> None:
+    def depart_start_of_file(self, _node: nodes.Element) -> None:
         """Clean up after start_of_file node."""
         self.docnames.pop()

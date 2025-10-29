@@ -383,7 +383,7 @@ class FootNoteContext(NoLineBreakContext):
 _ContextT = TypeVar("_ContextT", bound=SubContext)
 
 Translator = Callable[[Any, Any], Dict[str, Any]]
-DEFAULT_TRANSLATOR: Translator = lambda _node, _elem: {}
+DEFAULT_TRANSLATOR: Translator = lambda _node, _elem: {}  # pylint: disable=invalid-name
 
 
 class PushContext(Generic[_ContextT]):  # pylint: disable=too-few-public-methods
@@ -405,6 +405,7 @@ class PushContext(Generic[_ContextT]):  # pylint: disable=too-few-public-methods
         return self.ctx(*self.args, **kwargs)
 
 
+# pylint: disable=invalid-name
 ItalicContext = PushContext(WrappedContext, "*")  # _ is more restrictive
 StrongContext = PushContext(WrappedContext, "**")  # _ is more restrictive
 SubscriptContext = PushContext(WrappedContext, "<sub>", "</sub>")
@@ -412,3 +413,4 @@ DocInfoContext = PushContext(
     MetaContext,
     translator=lambda _node, elem: {"name": f"{elem}: "},
 )
+# pylint: enable=invalid-name
