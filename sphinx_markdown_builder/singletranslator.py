@@ -2,10 +2,10 @@
 
 # pyright: reportImplicitOverride=false
 
-import re
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 from docutils import nodes
+from sphinx import addnodes
 
 from sphinx_markdown_builder.translator import MarkdownTranslator
 
@@ -18,19 +18,19 @@ class SingleMarkdownTranslator(MarkdownTranslator):
 
     def __init__(self, document: nodes.document, builder: "SingleFileMarkdownBuilder"):
         super().__init__(document, builder)
-        # Keep track of document names we've seen to avoid duplications
-        self._seen_docs: list[str] = []
+        # Track docnames as we traverse (like HTML translator)
+        self.docnames: list[str] = []
 
-    def visit_section(self, node: nodes.Element):
-        """Capture section node visit to ensure proper handling."""
-        # Add anchors for document sectioning
-        docname: str = cast(str, node.get("docname"))
-        if docname and docname not in self._seen_docs:
-            self._seen_docs.append(docname)
-            self.add(f'<a id="document-{docname}"></a>', prefix_eol=2)
-            # Add a title with the document name
-            safe_name = re.sub(r"[^a-zA-Z0-9-]", " ", docname.split("/")[-1]).title()
-            self.add(f"# {safe_name}", prefix_eol=1, suffix_eol=2)
+    def visit_start_of_file(self, node: nodes.Element) -> None:
+        """Handle start_of_file nodes created by inline_all_toctrees.
 
-        # Call the parent's visit_section method
-        MarkdownTranslator.visit_section(self, node)
+        This is similar to how the HTML5 translator handles it - just add an anchor.
+        """
+        docname = node["docname"]
+        self.docnames.append(docname)
+        # Add anchor for document linking (like singlehtml does)
+        self.add(f'<a id="document-{docname}"></a>', prefix_eol=2)
+
+    def depart_start_of_file(self, node: nodes.Element) -> None:
+        """Clean up after start_of_file node."""
+        self.docnames.pop()

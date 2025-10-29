@@ -186,9 +186,9 @@ def test_singlemarkdown_builder_methods():
 
     # Test basic methods
     assert builder.get_outdated_docs() == "all documents"
-    assert builder.get_target_uri("index") == "#index"
+    assert builder.get_target_uri("index") == "#document-index"
     assert builder.get_target_uri("external") == "external.md"
-    assert builder.get_relative_uri("source", "target") == "#target"
+    assert builder.get_relative_uri("source", "target") == "#document-target"
 
 
 def test_render_partial():
@@ -371,17 +371,9 @@ def test_write_documents():
     app.config.root_doc = "index"
     app.config.project = "Test Project"
     env.all_docs = {"index": None, "page1": None}
-    env.found_docs = {"index", "page1"}
 
-    # Create a test document
-    doc_index = nodes.document(Values(), Reporter("", 4, 4))
-    doc_index.append(nodes.paragraph("", "Test index content"))
-
-    doc_page1 = nodes.document(Values(), Reporter("", 4, 4))
-    doc_page1.append(nodes.paragraph("", "Test page1 content"))
-
-    # Mock get_doctree to return our test documents
-    env.get_doctree.side_effect = lambda docname: doc_index if docname == "index" else doc_page1
+    # Create a mock assembled document
+    assembled_doc = mock.MagicMock()
 
     # Create the builder
     builder = SingleFileMarkdownBuilder(app, env)
@@ -389,20 +381,32 @@ def test_write_documents():
     builder.outdir = BUILD_PATH
     builder.out_suffix = ".md"
 
-    # Create MarkdownWriter mock
+    # Mock the assembly methods
+    builder.prepare_writing = mock.MagicMock()
+    builder.assemble_doctree = mock.MagicMock(return_value=assembled_doc)
+    builder.assemble_toc_secnumbers = mock.MagicMock(return_value={})
+    builder.assemble_toc_fignumbers = mock.MagicMock(return_value={})
+
+    # Mock the writer
     writer_mock = mock.MagicMock()
-    writer_mock.output = "Test output"
-    builder.writer = writer_mock
+    writer_mock.output = "Test output content"
 
     # Make sure the output directory exists
-    os.makedirs(os.path.join(BUILD_PATH, "singlemarkdown"), exist_ok=True)
+    os.makedirs(BUILD_PATH, exist_ok=True)
 
-    # Run the method
-    builder.prepare_writing = mock.MagicMock()  # Mock prepare_writing
-    builder.write_documents(set())
+    # Patch MarkdownWriter to return our mock
+    with mock.patch("sphinx_markdown_builder.singlemarkdown.MarkdownWriter", return_value=writer_mock):
+        builder.write_documents(set())
+
+    # Verify methods were called
+    builder.assemble_doctree.assert_called_once()
+    builder.assemble_toc_secnumbers.assert_called_once()
+    builder.assemble_toc_fignumbers.assert_called_once()
+    writer_mock.write.assert_called_once()
 
     # Verify output file was created
     expected_file = os.path.join(BUILD_PATH, "index.md")
+    assert os.path.exists(expected_file)
 
     # Clean up
     if os.path.exists(expected_file):
@@ -410,7 +414,7 @@ def test_write_documents():
 
 
 def test_write_documents_error_handling():
-    """Test error handling in write_documents"""
+    """Test error handling in write_documents when assembly fails"""
     # Create mocks
     app = mock.MagicMock()
     env = mock.MagicMock()
@@ -419,7 +423,6 @@ def test_write_documents_error_handling():
     app.config.root_doc = "index"
     app.config.project = "Test Project"
     env.all_docs = {"index": None, "page1": None}
-    env.found_docs = {"index", "page1"}
 
     # Create the builder
     builder = SingleFileMarkdownBuilder(app, env)
@@ -427,25 +430,21 @@ def test_write_documents_error_handling():
     builder.outdir = BUILD_PATH
     builder.out_suffix = ".md"
 
-    # Setup to raise exception when getting doctree for "page1"
-    def mock_get_doctree(docname: str):
-        if docname == "page1":
-            raise Exception("Test exception")
-        return nodes.document(Values(), Reporter("", 4, 4))
-
-    env.get_doctree.side_effect = mock_get_doctree
-
-    # Create MarkdownWriter mock
-    writer_mock = mock.MagicMock()
-    writer_mock.output = "Test output"
-    builder.writer = writer_mock
+    # Mock methods - make assemble_doctree raise an exception
+    builder.prepare_writing = mock.MagicMock()
+    builder.assemble_doctree = mock.MagicMock(side_effect=Exception("Test exception"))
+    builder.assemble_toc_secnumbers = mock.MagicMock(return_value={})
+    builder.assemble_toc_fignumbers = mock.MagicMock(return_value={})
 
     # Make sure the output directory exists
-    os.makedirs(os.path.join(BUILD_PATH), exist_ok=True)
+    os.makedirs(BUILD_PATH, exist_ok=True)
 
-    # Run the method - should handle the exception for page1
-    builder.prepare_writing = mock.MagicMock()  # Mock prepare_writing
-    builder.write_documents(set())
+    # Run the method - should raise the exception
+    try:
+        builder.write_documents(set())
+        assert False, "Expected exception was not raised"
+    except Exception as e:
+        assert str(e) == "Test exception"
 
 
 def test_write_documents_os_error():
@@ -458,12 +457,9 @@ def test_write_documents_os_error():
     app.config.root_doc = "index"
     app.config.project = "Test Project"
     env.all_docs = {"index": None}
-    env.found_docs = {"index"}
 
-    # Create a test document
-    doc = nodes.document(Values(), Reporter("", 4, 4))
-    doc.append(nodes.paragraph("", "Test content"))
-    env.get_doctree.return_value = doc
+    # Create a mock assembled document
+    assembled_doc = mock.MagicMock()
 
     # Create the builder
     builder = SingleFileMarkdownBuilder(app, env)
@@ -471,19 +467,24 @@ def test_write_documents_os_error():
     builder.outdir = BUILD_PATH
     builder.out_suffix = ".md"
 
-    # Create MarkdownWriter mock
+    # Mock the assembly methods
+    builder.prepare_writing = mock.MagicMock()
+    builder.assemble_doctree = mock.MagicMock(return_value=assembled_doc)
+    builder.assemble_toc_secnumbers = mock.MagicMock(return_value={})
+    builder.assemble_toc_fignumbers = mock.MagicMock(return_value={})
+
+    # Mock the writer
     writer_mock = mock.MagicMock()
-    writer_mock.output = "Test output"
-    builder.writer = writer_mock
+    writer_mock.output = "Test output content"
 
     # Make sure the output directory exists
-    os.makedirs(os.path.join(BUILD_PATH), exist_ok=True)
+    os.makedirs(BUILD_PATH, exist_ok=True)
 
     # Run the method with mocked open to raise OSError
-    builder.prepare_writing = mock.MagicMock()  # Mock prepare_writing
-    with mock.patch("builtins.open") as mock_open:
-        mock_open.side_effect = OSError("Test error")
-        builder.write_documents(set())
+    with mock.patch("sphinx_markdown_builder.singlemarkdown.MarkdownWriter", return_value=writer_mock):
+        with mock.patch("builtins.open") as mock_open:
+            mock_open.side_effect = OSError("Test error")
+            builder.write_documents(set())  # Should log warning but not crash
 
 
 if __name__ == "__main__":

@@ -46,10 +46,12 @@ class SingleFileMarkdownBuilder(MarkdownBuilder):
     def get_target_uri(self, docname: str, typ: str | None = None) -> str:
         if docname in self.env.all_docs:
             # All references are on the same page, use anchors
-            # Add anchor for document
-            return f"#{docname}"
+            # Add anchor for document (like singlehtml uses #document-)
+            return f"#document-{docname}"
         # External files like images or other resources
-        return docname + self.out_suffix
+        if docname:
+            return docname + self.out_suffix
+        return ""
 
     def get_relative_uri(self, from_: str, to: str, typ: str | None = None) -> str:
         # Ignore source - all links are in the same document
@@ -174,68 +176,28 @@ class SingleFileMarkdownBuilder(MarkdownBuilder):
         }
 
     def write_documents(self, _docnames: set[str]) -> None:
+        # Prepare for writing all documents
+        self.prepare_writing(self.env.all_docs.keys())
+
+        # Assemble single doctree from all documents (like singlehtml)
+        logger.info("assembling single document")
+        doctree = self.assemble_doctree()
+        self.env.toc_secnumbers = self.assemble_toc_secnumbers()
+        self.env.toc_fignumbers = self.assemble_toc_fignumbers()
+
+        # Write the assembled document
+        logger.info("writing")
+        root_doc = cast(str, self.config.root_doc)
+
+        # Set current_doc_name for the translator (needed for URL adjustments)
+        self.current_doc_name = root_doc
+        self.sec_numbers = self.env.toc_secnumbers.get(root_doc, {})
+
         # Prepare writer for output
         self.writer: MarkdownWriter | None = MarkdownWriter(self)
 
-        # Prepare for writing all documents
-        self.prepare_writing(set(self.env.all_docs))
-
-        # To store final output
-        content_parts: list[str] = []
-
-        # Add main header
-        project = cast(str, self.config.project)
-        content_parts.append(f"# {project} Documentation\n\n")
-
-        # Add table of contents
-        content_parts.append("## Table of Contents\n\n")
-
-        # The list of docnames to process - start with root doc and include all docnames
-        root_doc = cast(str, self.config.root_doc)
-        docnames = [root_doc] + list(self.env.found_docs - {root_doc})
-
-        # Add TOC entries
-        for docname in docnames:
-            if docname == root_doc:
-                content_parts.append(f"* [Main Document](#{docname})\n")
-            else:
-                title = docname.rsplit("/", 1)[-1].replace("_", " ").replace("-", " ").title()
-                content_parts.append(f"* [{title}](#{docname})\n")
-
-        content_parts.append("\n")
-
-        # Process each document
-        for docname in docnames:
-            logger.info("Adding content from %s", docname)
-
-            try:
-                # Get the doctree for this document
-                doc = self.env.get_doctree(docname)
-
-                # Add anchor for linking
-                content_parts.append(f'\n<a id="{docname}"></a>\n\n')
-
-                # Generate title based on docname
-                if docname == root_doc:
-                    title = "Main Document"
-                else:
-                    title = docname.rsplit("/", 1)[-1].replace("_", " ").replace("-", " ").title()
-
-                content_parts.append(f"## {title}\n\n")
-
-                # Get markdown writer output for this document
-                self.writer = MarkdownWriter(self)
-
-                destination = StringOutput(encoding="utf-8")
-                _ = self.writer.write(doc, destination)  # Use proper StringOutput as destination
-                content_parts.append(self.writer.output if self.writer.output is not None else "")
-                content_parts.append("\n\n")
-
-            except Exception as e:  # pylint: disable=broad-exception-caught
-                logger.warning("Error adding content from %s: %s", docname, e)
-
-        # Combine all content
-        final_content = "".join(content_parts)
+        destination = StringOutput(encoding="utf-8")
+        _ = self.writer.write(doctree, destination)
 
         # Write to output file
         outfilename = os.path.join(self.outdir, os_path(root_doc) + self.out_suffix)
@@ -245,7 +207,7 @@ class SingleFileMarkdownBuilder(MarkdownBuilder):
 
         try:
             with open(outfilename, "w", encoding="utf-8") as f:
-                _ = f.write(final_content)
+                _ = f.write(self.writer.output if self.writer.output is not None else "")
         except OSError as err:
             logger.warning(__("error writing file %s: %s"), outfilename, err)
 
