@@ -36,6 +36,8 @@ You can add the following configurations to your `conf.py` file:
 * `markdown_docinfo`: If set to `True`, adds YAML frontmatter at the beginning of each document
   containing available author, contact, copyright, date, organization, revision, status, and version
   metadata (default: `False`).
+* `markdown_docinfo_fields`: Limits frontmatter to a list of case-sensitive field names.
+  The default, `None`, preserves all available fields; `[]` omits frontmatter entirely.
 * `markdown_http_base`: If set, all references will link to this prefix address
 * `markdown_uri_doc_suffix`: If set, all references will link to documents with this suffix.
 * `markdown_file_suffix`: Sets the file extension for generated markdown files (default: `.md`).

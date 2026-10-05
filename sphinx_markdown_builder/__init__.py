@@ -2,6 +2,8 @@
 A Sphinx extension to add markdown generation support.
 """
 
+from typing import Any
+
 from sphinx_markdown_builder.builder import MarkdownBuilder
 
 __version__ = "0.6.11"
@@ -16,6 +18,7 @@ def setup(app):
     app.add_config_value("markdown_anchor_sections", False, "html", bool)
     app.add_config_value("markdown_anchor_signatures", False, "html", bool)
     app.add_config_value("markdown_docinfo", False, "html", bool)
+    app.add_config_value("markdown_docinfo_fields", None, "html", Any)
     app.add_config_value("markdown_bullet", "*", "html", str)
     app.add_config_value("markdown_flavor", "", "html", str)
 

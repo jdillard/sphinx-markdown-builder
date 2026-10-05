@@ -193,37 +193,122 @@ def test_download_references(tmp_path: Path):
     assert "](https://example.com/sample.pdf)" in markdown
 
 
-@pytest.mark.parametrize("flavor", ["", "github"])
-@pytest.mark.parametrize("enabled", [False, True])
-def test_docinfo_frontmatter(tmp_path: Path, flavor: str, enabled: bool):
+@pytest.fixture
+def docinfo_paths(tmp_path: Path):
     source_path = tmp_path / "source"
     output_path = tmp_path / "output"
     source_path.mkdir()
+    (source_path / "conf.py").write_text(
+        'extensions = ["sphinx_markdown_builder"]\nroot_doc = "index"\n'
+        "from docutils import nodes\n"
+        "def add_docinfo(app, doctree):\n"
+        '    if app.env.docname == "child":\n'
+        '        doctree.insert(0, nodes.docinfo("", nodes.author("", "Document author")))\n'
+        "def setup(app):\n"
+        '    app.connect("doctree-read", add_docinfo)\n',
+        encoding="utf-8",
+    )
+    (source_path / "index.rst").write_text("Index\n=====\n\n.. toctree::\n\n   child\n", encoding="utf-8")
+    (source_path / "child.rst").write_text("Child\n=====\n\nBody text.\n", encoding="utf-8")
+    return source_path, output_path
+
+
+@pytest.mark.parametrize("flavor", ["", "github"])
+@pytest.mark.parametrize("enabled", [False, True])
+@pytest.mark.parametrize("fields", [None, ["author", "version"], []])
+def test_docinfo_frontmatter(docinfo_paths, flavor: str, enabled: bool, fields):
+    source_path, output_path = docinfo_paths
     metadata = {
         "author": 'Example: "Team" #1 \\ docs\nSecond line',
         "copyright": "2026, Example Documentation Team",
         "version": "0.6",
     }
-    config = (
-        'extensions = ["sphinx_markdown_builder"]\nroot_doc = "index"\n'
+    config = (source_path / "conf.py").read_text(encoding="utf-8")
+    config += (
         f"markdown_docinfo = {enabled!r}\nmarkdown_flavor = {flavor!r}\n"
+        f"markdown_docinfo_fields = {fields!r}\n"
     )
     config += "".join(f"{key} = {value!r}\n" for key, value in metadata.items())
     (source_path / "conf.py").write_text(
         config,
         encoding="utf-8",
     )
-    (source_path / "index.rst").write_text("Index\n=====\n\n.. toctree::\n\n   child\n", encoding="utf-8")
-    (source_path / "child.rst").write_text("Child\n=====\n\nBody text.\n", encoding="utf-8")
-
     assert main(["-b", "markdown", str(source_path), str(output_path)]) == 0
 
     for name in ("index", "child"):
+        expected = metadata.copy() if enabled else {}
+        if name == "child":
+            expected["author"] = "Document author"
+        if fields is not None:
+            expected = {key: value for key, value in expected.items() if key in fields}
         markdown = (output_path / f"{name}.md").read_text(encoding="utf-8")
-        if enabled:
+        if expected:
             assert markdown.startswith("---\n")
             _, frontmatter, body = markdown.split("---", 2)
-            assert yaml.safe_load(frontmatter) == metadata
+            assert yaml.safe_load(frontmatter) == expected
             assert body.startswith(f"\n\n# {name.title()}\n")
+        else:
+            assert markdown.startswith(f"# {name.title()}\n")
+        if name == "child":
+            assert markdown.endswith("Body text.\n")
+
+
+@pytest.mark.parametrize("warning_as_error", [False, True])
+@pytest.mark.parametrize("fields", [["author", "typo", "typo"], ["typo"]])
+@pytest.mark.parametrize(
+    "suppression", [None, "markdown.unknown_docinfo_fields", "markdown.invalid_docinfo_fields", "markdown.*"]
+)
+def test_docinfo_unknown_fields(docinfo_paths, capsys, warning_as_error, fields, suppression):
+    source_path, output_path = docinfo_paths
+    config = (source_path / "conf.py").read_text(encoding="utf-8")
+    (source_path / "conf.py").write_text(
+        config + f"markdown_docinfo_fields = {fields!r}\n"
+        f"suppress_warnings = {[suppression] if suppression else []!r}\nshow_warning_types = True\n",
+        encoding="utf-8",
+    )
+    flags = ["-W"] if warning_as_error else []
+    suppressed = suppression in ("markdown.unknown_docinfo_fields", "markdown.*")
+    expected_exit_code = int(warning_as_error and not suppressed)
+    assert main(["-b", "markdown", *flags, str(source_path), str(output_path)]) == expected_exit_code
+    warnings = capsys.readouterr().err
+    assert warnings.count("markdown_docinfo_fields: ignoring unknown fields typo;") == int(not suppressed)
+    assert ("[markdown.unknown_docinfo_fields]" in warnings) == (not suppressed)
+    child = (output_path / "child.md").read_text(encoding="utf-8")
+    if "author" in fields:
+        assert yaml.safe_load(child.split("---", 2)[1]) == {"author": "Document author"}
+    else:
+        assert child.startswith("# Child\n")
+
+
+@pytest.mark.parametrize("fields", ["author", {"author": True}, ["author", 1]])
+@pytest.mark.parametrize("enabled", [False, True])
+@pytest.mark.parametrize("warning_as_error", [False, True])
+@pytest.mark.parametrize(
+    "suppression", [None, "markdown.invalid_docinfo_fields", "markdown.unknown_docinfo_fields", "markdown.*"]
+)
+def test_docinfo_invalid_fields(docinfo_paths, capsys, fields, enabled, warning_as_error, suppression):
+    source_path, output_path = docinfo_paths
+    config = (source_path / "conf.py").read_text(encoding="utf-8")
+    (source_path / "conf.py").write_text(
+        config + f"markdown_docinfo_fields = {fields!r}\nmarkdown_docinfo = {enabled!r}\n"
+        'author = "Config author"\ncopyright = "Config copyright"\n'
+        f"suppress_warnings = {[suppression] if suppression else []!r}\nshow_warning_types = True\n",
+        encoding="utf-8",
+    )
+    flags = ["-W"] if warning_as_error else []
+    suppressed = suppression in ("markdown.invalid_docinfo_fields", "markdown.*")
+    expected_exit_code = int(warning_as_error and not suppressed)
+    assert main(["-b", "markdown", *flags, str(source_path), str(output_path)]) == expected_exit_code
+    warning = "markdown_docinfo_fields must be None or a list of field names (strings); using default None"
+    warnings = capsys.readouterr().err
+    assert warnings.count(warning) == int(not suppressed)
+    assert ("[markdown.invalid_docinfo_fields]" in warnings) == (not suppressed)
+    for name in ("index", "child"):
+        expected = {"author": "Config author", "copyright": "Config copyright"} if enabled else {}
+        if name == "child":
+            expected["author"] = "Document author"
+        markdown = (output_path / f"{name}.md").read_text(encoding="utf-8")
+        if expected:
+            assert yaml.safe_load(markdown.split("---", 2)[1]) == expected
         else:
             assert markdown.startswith(f"# {name.title()}\n")

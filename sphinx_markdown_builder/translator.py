@@ -230,8 +230,12 @@ class MarkdownTranslator(SphinxTranslator):  # pylint: disable=too-many-public-m
         assert len(self._ctx_queue) == 1
 
         ctx = SubContext()
-        if self._doc_info:
-            metadata = yaml.safe_dump(self._doc_info, allow_unicode=True, sort_keys=False)
+        fields = self.config.markdown_docinfo_fields
+        doc_info = self._doc_info
+        if fields is not None:
+            doc_info = {name: value for name, value in doc_info.items() if name in fields}
+        if doc_info:
+            metadata = yaml.safe_dump(doc_info, allow_unicode=True, sort_keys=False)
             ctx.add(f"---\n{metadata}---", suffix_eol=2)
         ctx.add(self._ctx_queue[0].make().strip(), prefix_eol=2, suffix_eol=1)
         ctx.force_eol(1)

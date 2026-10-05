@@ -16,7 +16,7 @@ from sphinx.locale import __
 from sphinx.util import logging
 from sphinx.util.osutil import ensuredir, os_path
 
-from sphinx_markdown_builder.translator import MarkdownTranslator
+from sphinx_markdown_builder.translator import DOC_INFO_FIELDS, MarkdownTranslator
 from sphinx_markdown_builder.writer import MarkdownWriter
 
 logger = logging.getLogger(__name__)
@@ -56,6 +56,25 @@ class MarkdownBuilder(Builder):
     def init(self):
         self.sec_numbers = {}
         self.out_suffix = self.config.markdown_file_suffix
+        fields = self.config.markdown_docinfo_fields
+        if fields is not None:
+            if not isinstance(fields, list) or any(not isinstance(field, str) for field in fields):
+                self.config.markdown_docinfo_fields = None
+                logger.warning(
+                    __("markdown_docinfo_fields must be None or a list of field names (strings); using default None"),
+                    type="markdown",
+                    subtype="invalid_docinfo_fields",
+                )
+                return
+            unknown = sorted(set(fields) - set(DOC_INFO_FIELDS))
+            if unknown:
+                logger.warning(
+                    __("markdown_docinfo_fields: ignoring unknown fields %s; supported fields: %s"),
+                    ", ".join(unknown),
+                    ", ".join(DOC_INFO_FIELDS),
+                    type="markdown",
+                    subtype="unknown_docinfo_fields",
+                )
 
     def _get_source_mtime(self, doc_name: str):
         source_name = self.env.doc2path(doc_name)
