@@ -14,10 +14,14 @@ from sphinx_markdown_builder.contexts import SubContext
 from sphinx_markdown_builder.translator import DOC_INFO_FIELDS, MarkdownTranslator
 
 
+def make_builder():
+    return Mock(name="builder", config=Mock(markdown_docinfo_fields=None))
+
+
 def make_mock():
     document = Mock(name="document")
     document.settings.language_code = "en"
-    builder = Mock(name="builder")
+    builder = make_builder()
     return MarkdownTranslator(document, builder)
 
 
@@ -47,7 +51,7 @@ def test_trailing_eol():
 def test_docinfo_frontmatter(version):
     document = Mock(name="document")
     document.settings.language_code = "en"
-    builder = Mock(name="builder")
+    builder = make_builder()
     builder.config.markdown_docinfo = True
     builder.config.author = 'Example: "Team" #1 \\ docs\nSecond line'
     builder.config.version = version
@@ -68,7 +72,7 @@ def test_compact_frontmatter():
         docutils.nodes.author("", "Example Team"),
         docutils.nodes.version("", "0.6"),
     )
-    builder = Mock(name="builder")
+    builder = make_builder()
     translator = MarkdownTranslator(document, builder)
     document.walkabout(translator)
     assert translator.astext() == "---\nauthor: Example Team\nversion: '0.6'\n---\n\n"
@@ -78,7 +82,7 @@ def test_compact_frontmatter():
 def test_no_empty_frontmatter(enabled):
     document = Mock(name="document")
     document.settings.language_code = "en"
-    builder = Mock(name="builder")
+    builder = make_builder()
     builder.config.markdown_docinfo = enabled
     builder.config.version = "" if enabled else "0.6"
     translator = MarkdownTranslator(document, builder)
@@ -87,20 +91,61 @@ def test_no_empty_frontmatter(enabled):
 
 
 @pytest.mark.parametrize("field", DOC_INFO_FIELDS)
-def test_docinfo_fields_override_config(field):
+@pytest.mark.parametrize("included", [False, True])
+def test_docinfo_fields_override_config(field, included):
     document = new_document("test")
     value = 'Example *text*: "quotes" #1 \\ docs\nSecond line'
     node = getattr(docutils.nodes, field)("", value)
     document += docutils.nodes.docinfo("", node)
-    builder = Mock(name="builder")
+    builder = make_builder()
     builder.config.markdown_docinfo = True
+    builder.config.markdown_docinfo_fields = [field] if included else []
     setattr(builder.config, field, "Config value")
     translator = MarkdownTranslator(document, builder)
     document.walkabout(translator)
 
     markdown = translator.astext()
-    assert markdown.startswith("---\n")
-    assert yaml.safe_load(markdown.split("---")[1]) == {field: value}
+    if included:
+        assert markdown.startswith("---\n")
+        assert yaml.safe_load(markdown.split("---")[1]) == {field: value}
+    else:
+        assert markdown == ""
+
+
+@pytest.mark.parametrize("enabled", [False, True])
+@pytest.mark.parametrize("fields", [None, ["version"], [], ["unknown"], ["version", "author", "version"]])
+def test_docinfo_allowlist(fields, enabled):
+    document = new_document("test")
+    document += docutils.nodes.docinfo(
+        "",
+        docutils.nodes.author("", "Document author"),
+        docutils.nodes.version("", "Document version"),
+    )
+    builder = make_builder()
+    builder.config.markdown_docinfo = enabled
+    builder.config.markdown_docinfo_fields = fields
+    builder.config.author = "Config author"
+    builder.config.copyright = "Config copyright"
+    translator = MarkdownTranslator(document, builder)
+    document.walkabout(translator)
+    translator.add("# Document")
+    collected = translator._doc_info.copy()
+    expected = {"author": "Document author", "version": "Document version"}
+    if enabled:
+        expected = {"author": "Document author", "copyright": "Config copyright", "version": "Document version"}
+    if fields is not None:
+        expected = {name: value for name, value in expected.items() if name in fields}
+
+    markdown = translator.astext()
+    if expected:
+        _, frontmatter, body = markdown.split("---", 2)
+        assert yaml.safe_load(frontmatter) == expected
+        assert list(yaml.safe_load(frontmatter)) == list(expected)
+        assert body == "\n\n# Document\n"
+    else:
+        assert markdown == "# Document\n"
+    assert translator.astext() == markdown
+    assert translator._doc_info == collected
 
 
 class FakeNode1(docutils.nodes.General, docutils.nodes.Element):
